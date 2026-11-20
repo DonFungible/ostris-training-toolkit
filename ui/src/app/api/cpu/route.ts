@@ -3,7 +3,7 @@ import si from 'systeminformation';
 import os from 'os';
 import { CpuInfo } from '@/types';
 import { cached } from '@/server/apiCache';
-import { loadMacstats } from '@/server/macstats';
+import { getMacstatsSnapshot } from '@/server/macstats';
 
 const isMac = os.platform() === 'darwin';
 
@@ -13,10 +13,8 @@ async function getCpuInfo(): Promise<CpuInfo> {
 
   if (isMac) {
     try {
-      const ms = loadMacstats();
-      if (!ms) throw new Error('macstats unavailable');
-      const ramData = ms.getRAMUsageSync();
-      const cpuData = ms.getCpuDataSync();
+      const { ramData, cpuData } = getMacstatsSnapshot() ?? {};
+      if (!ramData || !cpuData) throw new Error('macstats unavailable');
 
       cpuInfo = {
         name: `${cpuInfoRaw.manufacturer} ${cpuInfoRaw.brand}`,

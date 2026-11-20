@@ -2,7 +2,7 @@ import { spawn, execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import si from 'systeminformation';
-import { loadMacstats } from '@/server/macstats';
+import { getMacstatsSnapshot } from '@/server/macstats';
 import { createLoadSampler, readCpuTemperature, readMemory } from '@/server/cpuStats';
 import { CpuInfo, GpuInfo, GPUApiResponse, MonitorHistoryPoint, MonitorInit, MonitorSample } from '@/types';
 import { historyPointFromSample, MONITOR_HISTORY_LENGTH, MONITOR_TICK_MS } from '@/utils/monitorSample';
@@ -250,11 +250,9 @@ class SystemMonitor {
     const cpuStatic = this.cpuStatic;
 
     if (this.isMac) {
-      try {
-        const ms = loadMacstats();
-        if (!ms) throw new Error('macstats unavailable');
-        const ramData = ms.getRAMUsageSync();
-        const cpuData = ms.getCpuDataSync();
+      // Fall through to the generic path if macstats is unavailable or failed
+      const { ramData, cpuData } = getMacstatsSnapshot() ?? {};
+      if (ramData && cpuData) {
         return {
           name: cpuStatic.name,
           cores: cpuStatic.cores,
@@ -264,8 +262,6 @@ class SystemMonitor {
           freeMemory: ramData.free / (1024 * 1024),
           currentLoad: this.sampleLoad(),
         };
-      } catch {
-        // Fallback to the generic path if macstats fails
       }
     }
 
@@ -338,37 +334,23 @@ class SystemMonitor {
     let memUsed = 0;
     let memTotal = os.totalmem() / (1024 * 1024);
 
-    const ms = loadMacstats();
-    if (ms) {
-      try {
-        const gpuData = ms.getGpuDataSync();
-        temperature = gpuData.temperature || 0;
-        gpuLoad = gpuData.usage || 0;
-      } catch {
-        // ignore
+    const { gpuData, fanData, powerData, ramData } = getMacstatsSnapshot() ?? {};
+    if (gpuData) {
+      temperature = gpuData.temperature || 0;
+      gpuLoad = gpuData.usage || 0;
+    }
+    if (fanData) {
+      const fanKeys = Object.keys(fanData);
+      if (fanKeys.length > 0) {
+        fanSpeed = fanData[fanKeys[0]]?.rpm || 0;
       }
-      try {
-        const fanData = ms.getFanDataSync();
-        const fanKeys = Object.keys(fanData);
-        if (fanKeys.length > 0) {
-          fanSpeed = fanData[fanKeys[0]].rpm || 0;
-        }
-      } catch {
-        // ignore
-      }
-      try {
-        const powerData = ms.getPowerDataSync();
-        powerDraw = powerData.gpu || 0;
-      } catch {
-        // ignore
-      }
-      try {
-        const ramData = ms.getRAMUsageSync();
-        memUsed = ramData.used / (1024 * 1024);
-        memTotal = ramData.total / (1024 * 1024);
-      } catch {
-        // ignore
-      }
+    }
+    if (powerData) {
+      powerDraw = powerData.gpu || 0;
+    }
+    if (ramData) {
+      memUsed = ramData.used / (1024 * 1024);
+      memTotal = ramData.total / (1024 * 1024);
     }
 
     return {

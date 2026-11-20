@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import { cached } from '@/server/apiCache';
-import { loadMacstats } from '@/server/macstats';
+import { getMacstatsSnapshot } from '@/server/macstats';
 
 const execAsync = promisify(exec);
 
@@ -47,40 +47,26 @@ async function getMacGpuInfo(): Promise<MacGpuResult | null> {
     let memUsed = 0;
     let memTotal = memoryTotal;
 
-    const ms = loadMacstats();
-    if (ms) {
-      try {
-        const gpuData = ms.getGpuDataSync();
-        temperature = gpuData.temperature || 0;
-        gpuLoad = gpuData.usage || 0;
-      } catch {
-        // ignore
-      }
+    const { gpuData, fanData, powerData, ramData } = getMacstatsSnapshot() ?? {};
+    if (gpuData) {
+      temperature = gpuData.temperature || 0;
+      gpuLoad = gpuData.usage || 0;
+    }
 
-      try {
-        const fanData = ms.getFanDataSync();
-        const fanKeys = Object.keys(fanData);
-        if (fanKeys.length > 0) {
-          fanSpeed = fanData[fanKeys[0]].rpm || 0;
-        }
-      } catch {
-        // ignore
+    if (fanData) {
+      const fanKeys = Object.keys(fanData);
+      if (fanKeys.length > 0) {
+        fanSpeed = fanData[fanKeys[0]]?.rpm || 0;
       }
+    }
 
-      try {
-        const powerData = ms.getPowerDataSync();
-        powerDraw = powerData.gpu || 0;
-      } catch {
-        // ignore
-      }
+    if (powerData) {
+      powerDraw = powerData.gpu || 0;
+    }
 
-      try {
-        const ramData = ms.getRAMUsageSync();
-        memUsed = ramData.used / (1024 * 1024);
-        memTotal = ramData.total / (1024 * 1024);
-      } catch {
-        // ignore
-      }
+    if (ramData) {
+      memUsed = ramData.used / (1024 * 1024);
+      memTotal = ramData.total / (1024 * 1024);
     }
 
     return { name: gpuName, memUsed, memTotal, gpuLoad, temperature, fanSpeed, powerDraw };
